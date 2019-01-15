@@ -1035,6 +1035,7 @@ static int64_t load_kernel (void)
 
         xlate_to_kseg0 = cpu_mips_kvm_um_phys_to_kseg0;
     }
+    error_printf("%s %s %d kernel_entry %lx, kernel_size %ld\n",__FILE__,__FUNCTION__,__LINE__,kernel_entry,kernel_size);
 
     /* load initrd */
     initrd_size = 0;
@@ -1310,6 +1311,7 @@ void mips_malta_init(MachineState *machine)
                                     ram_low_size,
                              bootloader_run_addr, kernel_entry);
         }
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     } else {
         /* The flash region isn't executable from a KVM guest */
         if (kvm_enabled()) {
@@ -1370,6 +1372,7 @@ void mips_malta_init(MachineState *machine)
         memcpy(memory_region_get_ram_ptr(bios_copy),
                memory_region_get_ram_ptr(bios), BIOS_SIZE);
     }
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     memory_region_set_readonly(bios_copy, true);
     memory_region_add_subregion(system_memory, RESET_ADDRESS, bios_copy);
 

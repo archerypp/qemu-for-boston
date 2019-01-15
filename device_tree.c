@@ -85,6 +85,7 @@ void *load_device_tree(const char *filename_path, int *sizep)
         goto fail;
     }
 
+    error_printf("%s %s %d dt_size %d\n",__FILE__,__FUNCTION__,__LINE__,dt_size);
     /* Expand to 2x size to give enough room for manipulation.  */
     dt_size += 10000;
     dt_size *= 2;

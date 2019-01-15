@@ -158,7 +158,9 @@ static int fit_load_kernel(const struct fit_loader *ldr, const void *itb,
         *pend = load_addr + sz;
     }
 
+    error_printf("%s %s %d load_addr %lx sz %ld\n",__FILE__,__FUNCTION__,__LINE__,load_addr, sz);
     load_addr = ldr->addr_to_phys(opaque, load_addr);
+    error_printf("%s %s %d load_addr %lx sz %ld\n",__FILE__,__FUNCTION__,__LINE__,load_addr, sz);
     rom_add_blob_fixed(name, load_data, sz, load_addr);
 
     ret = 0;
@@ -174,6 +176,7 @@ static int fit_load_fdt(const struct fit_loader *ldr, const void *itb,
                         int cfg, void *opaque, const void *match_data,
                         hwaddr kernel_end)
 {
+#if 1
     const char *name;
     const void *data;
     const void *load_data;
@@ -207,6 +210,7 @@ static int fit_load_fdt(const struct fit_loader *ldr, const void *itb,
 
     load_addr = ldr->addr_to_phys(opaque, load_addr);
     sz = fdt_totalsize(load_data);
+    error_printf("%s %s %d name %s load_data content %lx, sz %ld load_addr %lx\n",__FILE__,__FUNCTION__,__LINE__,name, *(uint64_t *)load_data, sz, load_addr);
     rom_add_blob_fixed(name, load_data, sz, load_addr);
 
     ret = 0;
@@ -216,6 +220,9 @@ out:
         g_free((void *) load_data);
     }
     return ret;
+#else
+    return 0;
+#endif
 }
 
 static bool fit_cfg_compatible(const void *itb, int cfg, const char *compat)
@@ -311,7 +318,7 @@ int load_fit(const struct fit_loader *ldr, const char *filename, void *opaque)
         ret = err;
         goto out;
     }
-
+    error_printf("%s %s %d kernel_end %lx\n", __FILE__,__FUNCTION__,__LINE__, kernel_end);
     err = fit_load_fdt(ldr, itb, cfg_off, opaque, match_data, kernel_end);
     if (err) {
         ret = err;

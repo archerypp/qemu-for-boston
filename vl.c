@@ -3049,8 +3049,9 @@ int main(int argc, char **argv, char **envp)
     atexit(qemu_run_exit_notifiers);
     error_set_progname(argv[0]);
     qemu_init_exec_dir(argv[0]);
-
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     module_call_init(MODULE_INIT_QOM);
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     qemu_add_opts(&qemu_drive_opts);
     qemu_add_drive_opts(&qemu_legacy_drive_opts);
@@ -3084,6 +3085,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_semihosting_config_opts);
     qemu_add_opts(&qemu_fw_cfg_opts);
     module_call_init(MODULE_INIT_OPTS);
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     runstate_init();
     postcopy_infrastructure_init();
@@ -4088,6 +4090,7 @@ int main(int argc, char **argv, char **envp)
     }
 
     cpu_exec_init_all();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     if (machine_class->hw_version) {
         qemu_set_hw_version(machine_class->hw_version);
@@ -4542,6 +4545,7 @@ int main(int argc, char **argv, char **envp)
 
     /* from here on runstate is RUN_STATE_PRELAUNCH */
     machine_run_board_init(current_machine);
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     realtime_init();
 
@@ -4660,33 +4664,47 @@ int main(int argc, char **argv, char **envp)
             exit(1);
         }
     } else if (autostart) {
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
         vm_start();
     }
 
     accel_setup_post(current_machine);
     os_setup_post();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     main_loop();
 
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     gdbserver_cleanup();
 
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     /* No more vcpu or device emulation activity beyond this point */
     vm_shutdown();
 
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     job_cancel_sync_all();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     bdrv_close_all();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     res_free();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
 
     /* vhost-user must be cleaned up before chardevs.  */
     tpm_cleanup();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     net_cleanup();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     audio_cleanup();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     monitor_cleanup();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     qemu_chr_cleanup();
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     user_creatable_cleanup();
     migration_object_finalize();
     /* TODO: unref root container, check all devices are ok */
 
+    error_printf("%s %s %d\n",__FILE__,__FUNCTION__,__LINE__);
     return 0;
 }

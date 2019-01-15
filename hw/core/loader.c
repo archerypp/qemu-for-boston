@@ -55,6 +55,7 @@
 #include "exec/address-spaces.h"
 #include "hw/boards.h"
 #include "qemu/cutils.h"
+#include "qemu/error-report.h"
 
 #include <zlib.h>
 
@@ -1063,6 +1064,7 @@ int rom_add_elf_program(const char *name, void *data, size_t datasize,
     rom->data     = data;
     rom->as       = as;
     rom_insert(rom);
+    error_printf("%s %s %d, name %s addr %lx, datasize %ld, romsize %ld, data %p\n", __FILE__,__FUNCTION__,__LINE__,rom->name, addr, datasize, romsize, data);
     return 0;
 }
 
