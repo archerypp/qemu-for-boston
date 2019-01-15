@@ -160,7 +160,7 @@ static int fit_load_kernel(const struct fit_loader *ldr, const void *itb,
 
     error_printf("%s %s %d load_addr %lx sz %ld\n",__FILE__,__FUNCTION__,__LINE__,load_addr, sz);
     load_addr = ldr->addr_to_phys(opaque, load_addr);
-    error_printf("%s %s %d load_addr %lx sz %ld\n",__FILE__,__FUNCTION__,__LINE__,load_addr, sz);
+    error_printf("%s %s %d load_addr %lx load data content %lx sz %ld\n",__FILE__,__FUNCTION__,__LINE__,load_addr, *(uint64_t *)load_data, sz);
     rom_add_blob_fixed(name, load_data, sz, load_addr);
 
     ret = 0;

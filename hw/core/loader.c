@@ -1064,7 +1064,7 @@ int rom_add_elf_program(const char *name, void *data, size_t datasize,
     rom->data     = data;
     rom->as       = as;
     rom_insert(rom);
-    error_printf("%s %s %d, name %s addr %lx, datasize %ld, romsize %ld, data %p\n", __FILE__,__FUNCTION__,__LINE__,rom->name, addr, datasize, romsize, data);
+    error_printf("%s %s %d, name %s addr %lx, datasize %ld, romsize %ld, data content %lx\n", __FILE__,__FUNCTION__,__LINE__,rom->name, addr, datasize, romsize, *(uint64_t *)data);
     return 0;
 }
 
