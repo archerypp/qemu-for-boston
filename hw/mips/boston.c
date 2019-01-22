@@ -48,7 +48,6 @@
 
 #define TYPE_MIPS_BOSTON "mips-boston"
 #define BOSTON(obj) OBJECT_CHECK(BostonState, (obj), TYPE_MIPS_BOSTON)
-//#define FIT
 typedef struct {
     SysBusDevice parent_obj;
 
@@ -63,7 +62,11 @@ typedef struct {
     hwaddr kernel_entry;
     hwaddr fdt_base;
     long kernel_size;
+
+    uint64_t initrd_size;
+    uint64_t initrd_start;
 } BostonState;
+
 
 static struct _loaderparams {
     int ram_size, ram_low_size;
@@ -414,19 +417,33 @@ static int load_dtb (BostonState *s)
     hwaddr load_addr;
     hwaddr kernel_end = 0xffffffff80100000 + s->kernel_size;
     const char *cmdline;
+    char *args_str = NULL;
+    int initrd_args_len = 64;
     int err;
     size_t ram_low_sz, ram_high_sz;
 
     fdt = load_device_tree(loaderparams.dtb_filename, &size);
     if (!fdt) {
         fprintf(stderr, "Couldn't open dtb file %s\n", loaderparams.dtb_filename);
-        return -1;;
+        return -1;
     }
     load_addr = ROUND_UP(kernel_end, 64 * KiB) + (10 * MiB);
 
     cmdline = (machine->kernel_cmdline && machine->kernel_cmdline[0])
             ? machine->kernel_cmdline : " ";
+
+    if(s->initrd_size){
+        args_str = g_malloc(strlen(cmdline)+initrd_args_len);
+        if(args_str != NULL){
+            sprintf((char*)args_str,"rd_start=0x%lx rd_size=0x%lx %s", s->initrd_start, s->initrd_size, cmdline);
+            cmdline = args_str;
+        }
+    }
+
     err = qemu_fdt_setprop_string(fdt, "/chosen", "bootargs", cmdline);
+    if(args_str != NULL)
+        g_free(args_str);
+
     if (err < 0) {
         fprintf(stderr, "couldn't set /chosen/bootargs\n");
         return -1;
@@ -451,18 +468,17 @@ static int load_dtb (BostonState *s)
     
 }
 
+
 static int64_t load_kernel (BostonState *s)
 {
     int64_t kernel_entry, kernel_high, initrd_size;
     long kernel_size;
     ram_addr_t initrd_offset;
     int big_endian;
-#if 0
-    uint32_t *prom_buf;
-    long prom_size;
-    int prom_index = 0;
+
     uint64_t (*xlate_to_kseg0) (void *opaque, uint64_t addr);
-#endif
+	
+
 #ifdef TARGET_WORDS_BIGENDIAN
     big_endian = 1;
 #else
@@ -486,19 +502,15 @@ static int64_t load_kernel (BostonState *s)
                          "Did you forget to enable CONFIG_KVM_GUEST?");
             exit(1);
         }
-#if 0
         xlate_to_kseg0 = cpu_mips_phys_to_kseg0;
-#endif
     } else {
         /* if kernel entry is in useg it is probably a KVM T&E kernel */
         mips_um_ksegs_enable();
-#if 0
         xlate_to_kseg0 = cpu_mips_kvm_um_phys_to_kseg0;
-#endif
     }
 
+
     error_printf("%s %s %d kernel_entry %lx, kernel_size %ld\n",__FILE__,__FUNCTION__,__LINE__,kernel_entry,kernel_size);
-//    rom_add_blob_fixed(name, load_data, sz, load_addr);
     /* load initrd */
     initrd_size = 0;
     initrd_offset = 0;
@@ -526,36 +538,11 @@ static int64_t load_kernel (BostonState *s)
             exit(1);
         }
     }
-#if 0
-    /* Setup prom parameters. */
-    prom_size = ENVP_NB_ENTRIES * (sizeof(int32_t) + ENVP_ENTRY_SIZE);
-    prom_buf = g_malloc(prom_size);
 
-    prom_set(prom_buf, prom_index++, "%s", loaderparams.kernel_filename);
-    if (initrd_size > 0) {
-        prom_set(prom_buf, prom_index++, "rd_start=0x%" PRIx64 " rd_size=%" PRId64 " %s",
-                 xlate_to_kseg0(NULL, initrd_offset), initrd_size,
-                 loaderparams.kernel_cmdline);
-    } else {
-        prom_set(prom_buf, prom_index++, "%s", loaderparams.kernel_cmdline);
-    }
-
-    prom_set(prom_buf, prom_index++, "memsize");
-    prom_set(prom_buf, prom_index++, "%u", loaderparams.ram_low_size);
-
-    prom_set(prom_buf, prom_index++, "ememsize");
-    prom_set(prom_buf, prom_index++, "%u", loaderparams.ram_size);
-
-    prom_set(prom_buf, prom_index++, "modetty0");
-    prom_set(prom_buf, prom_index++, "38400n8r");
-    prom_set(prom_buf, prom_index++, NULL);
-
-    rom_add_blob_fixed("prom", prom_buf, prom_size,
-                       cpu_mips_kseg0_to_phys(NULL, ENVP_ADDR));
-    g_free(prom_buf);
-#endif
     s->kernel_entry = kernel_entry;
     s->kernel_size = kernel_size;
+    s->initrd_start = xlate_to_kseg0(NULL, initrd_offset);
+    s->initrd_size = initrd_size;
     return 0;
 }
 
