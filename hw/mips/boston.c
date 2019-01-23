@@ -39,6 +39,10 @@
 #include "sysemu/device_tree.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/qtest.h"
+#include "elf.h"
+#include "sysemu/kvm.h"
+#include "hw/mips/mips.h"
+#include "qemu/option.h"
 
 #include <libfdt.h>
 
@@ -58,7 +62,20 @@ typedef struct {
 
     hwaddr kernel_entry;
     hwaddr fdt_base;
+    long kernel_size;
+
+    uint64_t initrd_size;
+    uint64_t initrd_start;
 } BostonState;
+
+
+static struct _loaderparams {
+    int ram_size, ram_low_size;
+    const char *kernel_filename;
+    const char *kernel_cmdline;
+    const char *initrd_filename;
+    const char *dtb_filename;
+} loaderparams;
 
 enum boston_plat_reg {
     PLAT_FPGA_BUILD     = 0x00,
@@ -391,6 +408,137 @@ static const struct fit_loader boston_fit_loader = {
     .kernel_filter = boston_kernel_filter,
 };
 
+static int load_dtb (BostonState *s)
+{
+    void *fdt = NULL;
+    int size = 0;
+    MachineState *machine = s->mach;
+    hwaddr load_addr;
+    hwaddr kernel_end = 0xffffffff80100000 + s->kernel_size;
+    const char *cmdline;
+    char *args_str = NULL;
+    int initrd_args_len = 64;
+    int err;
+    size_t ram_low_sz, ram_high_sz;
+
+    fdt = load_device_tree(loaderparams.dtb_filename, &size);
+    if (!fdt) {
+        fprintf(stderr, "Couldn't open dtb file %s\n", loaderparams.dtb_filename);
+        return -1;
+    }
+    load_addr = ROUND_UP(kernel_end, 64 * KiB) + (10 * MiB);
+
+    cmdline = (machine->kernel_cmdline && machine->kernel_cmdline[0])
+            ? machine->kernel_cmdline : " ";
+
+    if(s->initrd_size){
+        args_str = g_malloc(strlen(cmdline)+initrd_args_len);
+        if(args_str != NULL){
+            sprintf((char*)args_str,"rd_start=0x%lx rd_size=0x%lx %s", s->initrd_start, s->initrd_size, cmdline);
+            cmdline = args_str;
+        }
+    }
+
+    err = qemu_fdt_setprop_string(fdt, "/chosen", "bootargs", cmdline);
+    if (err < 0) {
+        fprintf(stderr, "couldn't set /chosen/bootargs\n");
+        return -1;
+    }
+
+    ram_low_sz = MIN(256 * MiB, machine->ram_size);
+    ram_high_sz = machine->ram_size - ram_low_sz;
+    qemu_fdt_setprop_sized_cells(fdt, "/memory@0", "reg",
+                                 1, 0x00000000, 1, ram_low_sz,
+                                 1, 0x90000000, 1, ram_high_sz);
+
+    qemu_fdt_dumpdtb(fdt, size);
+
+    s->fdt_base = load_addr;
+    load_addr = cpu_mips_kseg0_to_phys(s, load_addr);
+    rom_add_blob_fixed("fdt@boston", fdt, size, load_addr);
+
+    g_free(args_str);
+    return 0;
+
+}
+
+
+static int load_kernel (BostonState *s)
+{
+    int64_t kernel_entry, kernel_high, initrd_size;
+    long kernel_size;
+    ram_addr_t initrd_offset;
+    int big_endian;
+
+    uint64_t (*xlate_to_kseg0) (void *opaque, uint64_t addr);
+
+
+#ifdef TARGET_WORDS_BIGENDIAN
+    big_endian = 1;
+#else
+    big_endian = 0;
+#endif
+
+    kernel_size = load_elf(loaderparams.kernel_filename, cpu_mips_kseg0_to_phys,
+                           NULL, (uint64_t *)&kernel_entry, NULL,
+                           (uint64_t *)&kernel_high, big_endian, EM_MIPS, 1, 0);
+    if (kernel_size < 0) {
+        error_report("could not load kernel '%s': %s",
+                     loaderparams.kernel_filename,
+                     load_elf_strerror(kernel_size));
+        return -1;
+    }
+
+    /* Check where the kernel has been linked */
+    if (kernel_entry & 0x80000000ll) {
+        if (kvm_enabled()) {
+            error_report("KVM guest kernels must be linked in useg. "
+                         "Did you forget to enable CONFIG_KVM_GUEST?");
+            return -1;
+        }
+        xlate_to_kseg0 = cpu_mips_phys_to_kseg0;
+    } else {
+        /* if kernel entry is in useg it is probably a KVM T&E kernel */
+        mips_um_ksegs_enable();
+        xlate_to_kseg0 = cpu_mips_kvm_um_phys_to_kseg0;
+    }
+
+
+    /* load initrd */
+    initrd_size = 0;
+    initrd_offset = 0;
+    if (loaderparams.initrd_filename) {
+        initrd_size = get_image_size (loaderparams.initrd_filename);
+        if (initrd_size > 0) {
+            /* The kernel allocates the bootmap memory in the low memory after
+               the initrd.  It takes at most 128kiB for 2GB RAM and 4kiB
+               pages.  */
+            initrd_offset = (loaderparams.ram_low_size - initrd_size
+                             - (128 * KiB)
+                             - ~INITRD_PAGE_MASK) & INITRD_PAGE_MASK;
+            if (kernel_high >= initrd_offset) {
+                error_report("memory too small for initial ram disk '%s'",
+                             loaderparams.initrd_filename);
+                return -1;
+            }
+            initrd_size = load_image_targphys(loaderparams.initrd_filename,
+                                              initrd_offset,
+                                              ram_size - initrd_offset);
+        }
+        if (initrd_size == (target_ulong) -1) {
+            error_report("could not load initial ram disk '%s'",
+                         loaderparams.initrd_filename);
+            return -1;
+        }
+    }
+
+    s->kernel_entry = kernel_entry;
+    s->kernel_size = kernel_size;
+    s->initrd_start = xlate_to_kseg0(NULL, initrd_offset);
+    s->initrd_size = initrd_size;
+    return 0;
+}
+
 static inline XilinxPCIEHost *
 xilinx_pcie_init(MemoryRegion *sys_mem, uint32_t bus_nr,
                  hwaddr cfg_base, uint64_t cfg_size,
@@ -433,7 +581,7 @@ static void boston_mach_init(MachineState *machine)
     PCIDevice *ahci;
     DriveInfo *hd[6];
     Chardev *chr;
-    int fw_size, fit_err;
+    int fw_size, load_err;
     bool is_64b;
 
     if ((machine->ram_size % GiB) ||
@@ -533,12 +681,30 @@ static void boston_mach_init(MachineState *machine)
             exit(1);
         }
     } else if (machine->kernel_filename) {
-        fit_err = load_fit(&boston_fit_loader, machine->kernel_filename, s);
-        if (fit_err) {
-            error_printf("unable to load FIT image\n");
-            exit(1);
-        }
-
+        loaderparams.dtb_filename = qemu_opt_get(qemu_get_machine_opts(), "dtb");
+        if(loaderparams.dtb_filename) {
+            loaderparams.ram_size = machine->ram_size;
+            loaderparams.ram_low_size = MIN(machine->ram_size, 256 * MiB);
+            loaderparams.kernel_filename = machine->kernel_filename;
+            loaderparams.kernel_cmdline = machine->kernel_cmdline;
+            loaderparams.initrd_filename = machine->initrd_filename;
+            load_err = load_kernel(s);
+            if (load_err) {
+                error_printf("unable to separately load kernel image\n");
+                exit(1);
+            }
+            load_err = load_dtb(s);
+            if (load_err) {
+                error_printf("unable to separately load dtb image\n");
+                exit(1);
+            }
+	} else {
+            load_err = load_fit(&boston_fit_loader, machine->kernel_filename, s);
+            if (load_err) {
+                error_printf("unable to load FIT image\n");
+                exit(1);
+            }
+	}
         gen_firmware(memory_region_get_ram_ptr(flash) + 0x7c00000,
                      s->kernel_entry, s->fdt_base, is_64b);
     } else if (!qtest_enabled()) {
